@@ -56,6 +56,12 @@ namespace NoVehicleDamage
                     UnturnedChat.Say(instigatorSteamID, "You cannot harm this vehicle when its owner is offline.");
                     messageCooldown.Add(instigatorSteamID);
                 }
+
+                Info info = new Info { attacker = UnturnedPlayer.FromCSteamID(instigatorSteamID).CharacterName, vehicleOwner = vehicle.lockedOwner };
+                if (!damagedOwners.Contains(info))
+                {
+                    damagedOwners.Add(info);
+                }
                 
                 shouldAllow = false;
             }

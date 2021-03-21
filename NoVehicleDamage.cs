@@ -5,64 +5,78 @@ using SDG.Unturned;
 using Steamworks;
 using UnityEngine;
 using System.Linq;
-using System.Collections;
 using System.Collections.Generic;
-using Rocket.Unturned.Permissions;
 
 namespace NoVehicleDamage
 {
     class NoVehicleDamage : RocketPlugin
     {
-        private List<CSteamID> messageCooldown = new List<CSteamID>();
+        private List<ulong> messageCooldown = new List<ulong>();
         private List<Info> damagedOwners = new List<Info>();
+        private float timeRemaining = 2;
 
         protected override void Load()
         {
             VehicleManager.onDamageVehicleRequested += new DamageVehicleRequestHandler(OnVehicleDamage);
-            UnturnedPermissions.OnJoinRequested += new UnturnedPermissions.JoinRequested(OnPlayerConnect);
-            StartCoroutine(ClearList());
-        }
-
-        IEnumerator ClearList()
-        {
-            messageCooldown.Clear();
-            yield return new WaitForSeconds(2f);
+            VehicleManager.onDamageTireRequested += new DamageTireRequestHandler(OnTireDamage);
+            Provider.onServerConnected += new Provider.ServerConnected(onServerConnected);
         }
 
         protected override void Unload()
         {
             VehicleManager.onDamageVehicleRequested -= new DamageVehicleRequestHandler(OnVehicleDamage);
-            UnturnedPermissions.OnJoinRequested -= new UnturnedPermissions.JoinRequested(OnPlayerConnect);
-            StopCoroutine(ClearList());
+            VehicleManager.onDamageTireRequested -= new DamageTireRequestHandler(OnTireDamage);
+            Provider.onServerConnected -= new Provider.ServerConnected(onServerConnected);
         }
 
-        public void OnPlayerConnect(CSteamID Player, ref ESteamRejection? rejection)
+        void Update()
         {
-            Info info = damagedOwners.FirstOrDefault(x => x.vehicleOwner == Player);
+            if (timeRemaining > 0)
+            {
+                timeRemaining -= Time.deltaTime;
+            }
+            else
+            {
+                messageCooldown.Clear();
+                timeRemaining = 2;
+            }
+        }
+
+        private void onServerConnected(CSteamID steamID)
+        {
+            Info info = damagedOwners.FirstOrDefault(x => x.vehicleOwner == steamID);
             while (info != null)
             {
                 damagedOwners.Remove(info);
-                UnturnedChat.Say(Player, "Your vehicle has been damaged by " + info.attacker + ".");
-                info = damagedOwners.FirstOrDefault(x => x.vehicleOwner == Player);
+                UnturnedChat.Say(steamID, info.attacker + " Tried to damage your vehicle.");
+                info = damagedOwners.FirstOrDefault(x => x.vehicleOwner == steamID);
             }
         }
-        
+
         public void OnVehicleDamage(CSteamID instigatorSteamID, InteractableVehicle vehicle, ref ushort pendingTotalDamage, ref bool canRepair, ref bool shouldAllow, EDamageOrigin damageOrigin)
         {
-            if(vehicle.lockedOwner.m_SteamID > 0 && UnturnedPlayer.FromCSteamID(vehicle.lockedOwner) == null)
+            if (vehicle.isLocked && PlayerTool.getPlayer(vehicle.lockedOwner) == null)
             {
-                if(!messageCooldown.Contains(instigatorSteamID))
+                if (!messageCooldown.Contains(instigatorSteamID.m_SteamID))
                 {
                     UnturnedChat.Say(instigatorSteamID, "You cannot harm this vehicle when its owner is offline.");
-                    messageCooldown.Add(instigatorSteamID);
+                    messageCooldown.Add(instigatorSteamID.m_SteamID);
                 }
 
                 Info info = new Info { attacker = UnturnedPlayer.FromCSteamID(instigatorSteamID).CharacterName, vehicleOwner = vehicle.lockedOwner };
-                if (!damagedOwners.Contains(info))
+                if (!damagedOwners.Any(x => x.attacker == info.attacker))
                 {
                     damagedOwners.Add(info);
                 }
-                
+
+                shouldAllow = false;
+            }
+        }
+
+        public void OnTireDamage(CSteamID instigatorSteamID, InteractableVehicle vehicle, int tireIndex, ref bool shouldAllow, EDamageOrigin damageOrigin)
+        {
+            if (vehicle.isLocked && PlayerTool.getPlayer(vehicle.lockedOwner) == null)
+            {
                 shouldAllow = false;
             }
         }
